@@ -252,19 +252,3 @@ def create_gif_combine_hand_avatar(hand: pd.DataFrame, avatar: pd.DataFrame, out
     ani.save(os.path.join(settings.RESULT_DIR, "gif", f"{filename}_combine.gif"), writer="imagemagick")
     if is_show:
         plt.show()
-
-
-def create_hand_avatar_indexes(path: np.ndarray) -> defaultdict:
-    d = defaultdict(lambda: list())
-    for k, v in path:
-        d[k].append(v)
-    return d
-
-
-def create_avatar_fixed_df(avatar_record: pd.DataFrame, d: defaultdict) -> pd.DataFrame:
-    record = pd.DataFrame()
-    if "TimeStamp" in avatar_record.columns:
-        avatar_record = avatar_record.drop("TimeStamp", axis=1)
-    for k, v in d.items():
-        record = pd.concat([record, pd.DataFrame(avatar_record.iloc[v, :].mean(axis=0)).T], axis=0)
-    return record
