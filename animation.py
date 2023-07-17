@@ -1,6 +1,5 @@
 import os
 
-import matplotlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -10,8 +9,6 @@ import torch
 
 from utils import settings
 
-matplotlib.use('TkAgg')
-
 
 @singledispatch
 def create_gif(filepath: str, is_show: bool = False) -> None:
@@ -19,86 +16,46 @@ def create_gif(filepath: str, is_show: bool = False) -> None:
     filename, ext = os.path.splitext(filename)
     df = pd.read_csv(f"../data/raw/position/{filename}{ext}")
 
-    timestamp = df["time"]
-    df.drop("time", axis=1, inplace=True)
+    timestamp = df.po("time")
     root_pos = df[["joint_Root.x", "joint_Root.y", "joint_Root.z"]]
     df.drop(["joint_Root.x", "joint_Root.y", "joint_Root.z"], axis=1, inplace=True)
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
+    mins, maxs = __get_xyz_min_max(df)
+
+    __plot_setup(ax, *mins, *maxs)
+
     sc = ax.scatter([], [], [], color="green")
-
-    ax.set_xscale("linear")
-    ax.set_yscale("linear")
-    ax.set_zscale("linear")
-
-    x_columns = df.columns.str.contains('x')
-    y_columns = df.columns.str.contains('y')
-    z_columns = df.columns.str.contains('z')
-    x_max, x_min = df.loc[:, x_columns].values.max(), df.loc[:, x_columns].values.min()
-    y_max, y_min = df.loc[:, y_columns].values.max(), df.loc[:, y_columns].values.min()
-    z_max, z_min = df.loc[:, z_columns].values.max(), df.loc[:, z_columns].values.min()
-
-    ax.set_xlim(x_min - settings.BUFFER, x_max + settings.BUFFER)
-    ax.set_ylim(y_min - settings.BUFFER, y_max + settings.BUFFER)
-    ax.set_zlim(z_min - settings.BUFFER, z_max + settings.BUFFER)
-
-    ax.set_xlabel("x-axis [cm]")
-    ax.set_ylabel("y-axis [cm]")
-    ax.set_zlabel("z-axis [cm]")
 
     def update(frame):
         df_i = df.iloc[frame, :]
-        x, y, z = [], [], []
-        for index in range(0, len(df_i), 3):
-            xi, yi, zi = df_i[index:index + 3]
-            x.append(xi)
-            y.append(yi)
-            z.append(zi)
-        sc._offsets3d = (x, y, z)
+        dfs = __get_xyz_coordinates(df_i)
+        sc._offsets3d = dfs
 
     ani = animation.FuncAnimation(fig, update, frames=len(df), interval=50)
     ani.save(os.path.join(settings.RESULT_DIR, "gif", f"{filename}_label.gif"), writer="imagemagick")
     if is_show:
-        plt.show()
+        fig.show()
 
 
 @create_gif.register
 def _(df: pd.DataFrame, output_name: str, is_show: bool = False, buffer: int = 20) -> None:
     filename, _ = os.path.splitext(output_name)
 
+    mins, maxs = __get_xyz_min_max(df)
+
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
+
+    __plot_setup(ax, *mins, *maxs)
+
     sc = ax.scatter([], [], [], color="green")
-
-    ax.set_xscale("linear")
-    ax.set_yscale("linear")
-    ax.set_zscale("linear")
-
-    x_columns = df.columns.str.contains('x')
-    y_columns = df.columns.str.contains('y')
-    z_columns = df.columns.str.contains('z')
-    x_max, x_min = df.loc[:, x_columns].values.max(), df.loc[:, x_columns].values.min()
-    y_max, y_min = df.loc[:, y_columns].values.max(), df.loc[:, y_columns].values.min()
-    z_max, z_min = df.loc[:, z_columns].values.max(), df.loc[:, z_columns].values.min()
-
-    ax.set_xlim(x_min - buffer, x_max + buffer)
-    ax.set_ylim(y_min - buffer, y_max + buffer)
-    ax.set_zlim(z_min - buffer, z_max + buffer)
-
-    ax.set_xlabel("x-axis [cm]")
-    ax.set_ylabel("y-axis [cm]")
-    ax.set_zlabel("z-axis [cm]")
 
     def update(frame):
         df_i = df.iloc[frame, :]
-        x, y, z = [], [], []
-        for index in range(0, len(df_i), 3):
-            xi, yi, zi = df_i[index:index + 3]
-            x.append(xi)
-            y.append(yi)
-            z.append(zi)
-        sc._offsets3d = (x, y, z)
+        dfs = __get_xyz_coordinates(df_i)
+        sc._offsets3d = dfs
 
     ani = animation.FuncAnimation(fig, update, frames=len(df), interval=100)
     ani.save(os.path.join(settings.RESULT_DIR, "gif", f"{filename}_label.gif"), writer="imagemagick")
@@ -112,28 +69,17 @@ def _(pred: torch.Tensor, output_name: str, is_show: bool = False) -> None:
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
+
+    mins, maxs = __get_xyz_min_max(pred)
+
+    __plot_setup(ax, *mins, *maxs)
+
     sc = ax.scatter([], [], [], color="blue")
 
-    x = np.array([pred[:, i].detach().numpy() for i in range(0, pred.shape[1], 3)])
-    y = np.array([pred[:, i].detach().numpy() for i in range(1, pred.shape[1], 3)])
-    z = np.array([pred[:, i].detach().numpy() for i in range(2, pred.shape[1], 3)])
-    ax.set_xlim(x.min() - settings.BUFFER, x.max() + settings.BUFFER)
-    ax.set_ylim(y.min() - settings.BUFFER, y.max() + settings.BUFFER)
-    ax.set_zlim(z.min() - settings.BUFFER, z.max() + settings.BUFFER)
-
-    ax.set_xlabel("x-axis [cm]")
-    ax.set_ylabel("y-axis [cm]")
-    ax.set_zlabel("z-axis [cm]")
-
     def update(frame):
-        df_i = pred[frame]
-        x, y, z = [], [], []
-        for index in range(0, len(df_i), 3):
-            xi, yi, zi = df_i[index:index + 3]
-            x.append(xi.item())
-            y.append(yi.item())
-            z.append(zi.item())
-        sc._offsets3d = (x, y, z)
+        pred_i = pred[frame]
+        preds = __get_xyz_coordinates(pred_i)
+        sc._offsets3d = preds
 
     ani = animation.FuncAnimation(fig, update, frames=len(pred), interval=100)
     ani.save(os.path.join(settings.RESULT_DIR, "gif", f"{filename}_pred.gif"), writer="imagemagick")
@@ -141,51 +87,28 @@ def _(pred: torch.Tensor, output_name: str, is_show: bool = False) -> None:
         fig.show()
 
 
+# ラベルデータと予測値を比較する
 def create_gif_combine(label: pd.DataFrame, pred: torch.Tensor, output_name: str, is_show: bool = False) -> None:
     filename, _ = os.path.splitext(output_name)
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
+    mins, maxs = __get_xyz_min_max_combine(label, pred)
+
+    __plot_setup(ax, *mins, *maxs)
+
     sc1 = ax.scatter([], [], [], label="pred", color="blue")
     sc2 = ax.scatter([], [], [], label="label", color="green")
 
-    x = np.array([pred[:, i].detach().numpy() for i in range(0, pred.shape[1], 3)])
-    y = np.array([pred[:, i].detach().numpy() for i in range(1, pred.shape[1], 3)])
-    z = np.array([pred[:, i].detach().numpy() for i in range(2, pred.shape[1], 3)])
-
-    x_columns = label.columns.str.contains('x')
-    y_columns = label.columns.str.contains('y')
-    z_columns = label.columns.str.contains('z')
-    x_max, x_min = label.loc[:, x_columns].values.max(), label.loc[:, x_columns].values.min()
-    y_max, y_min = label.loc[:, y_columns].values.max(), label.loc[:, y_columns].values.min()
-    z_max, z_min = label.loc[:, z_columns].values.max(), label.loc[:, z_columns].values.min()
-
-    ax.set_xlim(min(x.min(), x_min) - settings.BUFFER, max(x.max(), x_max) + settings.BUFFER)
-    ax.set_ylim(min(y.min(), y_min) - settings.BUFFER, max(y.max(), y_max) + settings.BUFFER)
-    ax.set_zlim(min(z.min(), z_min) - settings.BUFFER, max(z.max(), z_max) + settings.BUFFER)
-
-    ax.set_xlabel("x-axis [m]")
-    ax.set_ylabel("y-axis [m]")
-    ax.set_zlabel("z-axis [m]")
-
-    ax.legend()
-
     def update(frame):
-        df_pred = pred[frame]
-        df_label = label.iloc[frame, :]
-        x_pred, y_pred, z_pred = [], [], []
-        x_label, y_label, z_label = [], [], []
-        for index in range(0, len(df_label), 3):
-            xi_p, yi_p, zi_p = df_pred[index:index + 3]
-            xi_l, yi_l, zi_l = df_label[index:index + 3]
-            x_pred.append(xi_p.item())
-            y_pred.append(yi_p.item())
-            z_pred.append(zi_p.item())
-            x_label.append(xi_l)
-            y_label.append(yi_l)
-            z_label.append(zi_l)
-        sc1._offsets3d = (x_pred, y_pred, z_pred)
-        sc2._offsets3d = (x_label, y_label, z_label)
+        pred_i = pred[frame]
+        label_i = label.iloc[frame, :]
+
+        preds = __get_xyz_coordinates(pred_i)
+        labels = __get_xyz_coordinates(label_i)
+
+        sc1._offsets3d = preds
+        sc2._offsets3d = labels
 
     ani = animation.FuncAnimation(fig, update, frames=len(pred), interval=100)
     ani.save(os.path.join(settings.RESULT_DIR, "gif", f"{filename}_combine.gif"), writer="imagemagick")
@@ -194,61 +117,97 @@ def create_gif_combine(label: pd.DataFrame, pred: torch.Tensor, output_name: str
 
 
 # AvatarとHandのPoseを可視化用
-def create_gif_combine_hand_avatar(hand: pd.DataFrame, avatar: pd.DataFrame, output_name: str, is_show: bool = False,
-                                   buffer: int = 0) -> None:
+def create_gif_combine_hand_avatar(hand: pd.DataFrame, avatar: pd.DataFrame, output_name: str,
+                                   is_show: bool = False) -> None:
     filename, _ = os.path.splitext(output_name)
+
+    mins, maxs = __get_xyz_min_max_combine(hand, avatar)
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
+    __plot_setup(ax, *mins, *maxs)
     sc1 = ax.scatter([], [], [], label="avatar", color="blue")
     sc2 = ax.scatter([], [], [], label="hand", color="green")
 
-    x = avatar.columns.str.contains('x')
-    y = avatar.columns.str.contains('y')
-    z = avatar.columns.str.contains('z')
-    x_amax, x_amin = avatar.loc[:, x].values.max(), avatar.loc[:, x].values.min()
-    y_amax, y_amin = avatar.loc[:, y].values.max(), avatar.loc[:, y].values.min()
-    z_amax, z_amin = avatar.loc[:, z].values.max(), avatar.loc[:, z].values.min()
-
-    x_columns = hand.columns.str.contains('x')
-    y_columns = hand.columns.str.contains('y')
-    z_columns = hand.columns.str.contains('z')
-    x_max, x_min = hand.loc[:, x_columns].values.max(), hand.loc[:, x_columns].values.min()
-    y_max, y_min = hand.loc[:, y_columns].values.max(), hand.loc[:, y_columns].values.min()
-    z_max, z_min = hand.loc[:, z_columns].values.max(), hand.loc[:, z_columns].values.min()
-
-    ax.set_xlim(min(x_amin, x_min) - buffer, max(x_amax, x_max) + buffer)
-    ax.set_ylim(min(y_amin, y_min), max(y_amax, y_max))
-    ax.set_zlim(min(z_amin, z_min), max(z_amax, z_max))
-
-    ax.set_xlabel("x-axis [cm]")
-    ax.set_ylabel("y-axis [cm]")
-    ax.set_zlabel("z-axis [cm]")
-
-    ax.view_init(elev=-45, azim=90)
-
-    ax.legend()
-
     def update(frame):
-        df_avatar = avatar.iloc[frame, :]
-        df_hand = hand.iloc[frame, :]
-        x_pred, y_pred, z_pred = [], [], []
-        x_label, y_label, z_label = [], [], []
-        for index in range(0, len(df_hand), 3):
-            xi_p, yi_p, zi_p = df_avatar[index:index + 3]
-            xi_l, yi_l, zi_l = df_hand[index:index + 3]
-            x_pred.append(xi_p)
-            y_pred.append(yi_p)
-            z_pred.append(zi_p)
-            x_label.append(xi_l)
-            y_label.append(yi_l)
-            z_label.append(zi_l)
-        sc1._offsets3d = (x_pred, y_pred, z_pred)
-        sc2._offsets3d = (x_label, y_label, z_label)
+        avatar_i = avatar.iloc[frame, :]
+        hand_i = hand.iloc[frame, :]
 
-    ax.invert_xaxis()
+        avatars = __get_xyz_coordinates(avatar_i)
+        hands = __get_xyz_coordinates(hand_i)
+
+        sc1._offsets3d = avatars
+        sc2._offsets3d = hands
+
     ani = animation.FuncAnimation(fig, update, frames=len(avatar), interval=100)
     os.makedirs(os.path.join(settings.RESULT_DIR, "gif"), exist_ok=True)
     ani.save(os.path.join(settings.RESULT_DIR, "gif", f"{filename}_combine.gif"), writer="imagemagick")
     if is_show:
-        plt.show()
+        fig.show()
+
+
+# 図のセットアップ
+def __plot_setup(ax, x_min=-1, y_min=-1, z_min=-1, x_max=1, y_max=1, z_max=1) -> None:
+    ax.set_xscale("linear")
+    ax.set_yscale("linear")
+    ax.set_zscale("linear")
+
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
+    ax.set_zlim(z_min, z_max)
+
+    ax.set_xlabel("x-axis [m]")
+    ax.set_ylabel("y-axis [m]")
+    ax.set_zlabel("z-axis [m]")
+
+    ax.view_init(elev=-45, azim=90)
+    ax.invert_xaxis()
+
+
+# データのxyzごとに最小値と最大値を算出する
+def __get_xyz_min_max(data: pd.DataFrame or torch.Tensor) \
+        -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    if isinstance(data, pd.DataFrame):
+        x_columns = data.columns.str.contains('x')
+        y_columns = data.columns.str.contains('y')
+        z_columns = data.columns.str.contains('z')
+        x_max, x_min = data.loc[:, x_columns].values.max(), data.loc[:, x_columns].values.min()
+        y_max, y_min = data.loc[:, y_columns].values.max(), data.loc[:, y_columns].values.min()
+        z_max, z_min = data.loc[:, z_columns].values.max(), data.loc[:, z_columns].values.min()
+        return (x_min, y_min, z_min), (x_max, y_max, z_max)
+    elif isinstance(data, torch.Tensor):
+        x = np.array([data[:, i].detach().numpy() for i in range(0, data.shape[1], 3)])
+        y = np.array([data[:, i].detach().numpy() for i in range(1, data.shape[1], 3)])
+        z = np.array([data[:, i].detach().numpy() for i in range(2, data.shape[1], 3)])
+        return (x.min().item(), y.min().item(), z.min().item()), (x.max().item(), y.max().item(), z.max().item())
+
+
+# 二つのデータの最小値と最大値を取得
+def __get_xyz_min_max_combine(data1: pd.DataFrame or torch.Tensor, data2: pd.DataFrame or torch.Tensor) \
+        -> tuple[list, list]:
+    data1_min, data1_max = __get_xyz_min_max(data1)
+    data2_min, data2_max = __get_xyz_min_max(data2)
+    mins, maxs = [], []
+    for data1_i, data2_i in zip(data1_min, data2_min):
+        mins.append(min(data1_i, data2_i))
+    for data1_i, data2_i in zip(data1_max, data2_max):
+        maxs.append(max(data1_i, data2_i))
+    return mins, maxs
+
+
+# 任意のデータをxyzごとに取得
+def __get_xyz_coordinates(data: pd.DataFrame or torch.Tensor) -> tuple[list, list, list]:
+    x, y, z = [], [], []
+    if isinstance(data, pd.DataFrame):
+        for i in range(0, data.shape[0], 3):
+            xi, yi, zi = data[i: i + 3]
+            x.append(xi)
+            y.append(yi)
+            z.append(zi)
+    elif isinstance(data, torch.Tensor):
+        for i in range(0, len(data), 3):
+            xi, yi, zi = data[i: i + 3]
+            x.append(xi.item())
+            y.append(yi.item())
+            z.append(zi.item())
+    return x, y, z
